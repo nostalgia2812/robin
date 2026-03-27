@@ -1,5 +1,5 @@
 """
-Ghost AI System - Autonomous Security Orchestration Agent
+Ghost AI System — Autonomous Security Orchestration Agent
 Coordinates secret scanning, vulnerability assessment, and threat intelligence
 for authorized security operations.
 """
@@ -46,6 +46,7 @@ class GhostSession:
 class GhostAgent:
     """
     Ghost AI — Autonomous security orchestration agent.
+
     Coordinates secret scanning, vulnerability assessment, and cyber threat
     intelligence gathering for authorized security operations.
     """
@@ -66,25 +67,25 @@ Always operate within authorized scope. Be precise, technical, and actionable.
 Provide structured, intelligence-grade assessments.
 """
 
-    PLANNER_PROMPT = """You are Ghost AI planner. Given a security goal, decompose it into discrete tasks.
+    PLANNER_PROMPT = """You are Ghost AI planner. Given a security goal, decompose it into discrete executable tasks.
 
 Return ONLY a valid JSON array. Each task object must have:
-- "id": unique string like "t1", "t2"
-- "name": short task description
+- "id": unique string like "t1", "t2", etc.
+- "name": short human-readable task description
 - "tool": one of [gitleaks, trufflehog, commix, w3af, threat_intel]
 - "params": object with tool-specific parameters
 
-Tool params:
-- gitleaks: {"path": "/path/to/repo"}
-- trufflehog: {"target": "/path/or/git/url"}
-- commix: {"url": "http://target/page?param=val"}
-- w3af: {"url": "http://target"}
+Tool param schemas:
+- gitleaks:     {"path": "/path/to/repo"}
+- trufflehog:   {"target": "/path/or/git/url"}
+- commix:       {"url": "http://target/page?param=val"}
+- w3af:         {"url": "http://target"}
 - threat_intel: {"query": "search terms"}
 
-Return only the JSON array, no markdown, no explanation.
+Return ONLY the JSON array. No markdown. No explanation.
 """
 
-    def __init__(self, model_choice: str = "claude-sonnet-4-6"):
+    def __init__(self, model_choice: str = "claude-opus-4-6"):
         self.llm = get_llm(model_choice)
         self.sessions: dict[str, GhostSession] = {}
         self._tool_registry = {
@@ -108,7 +109,7 @@ Return only the JSON array, no markdown, no explanation.
 
     # ── Planning ──────────────────────────────────────────────────
 
-    async def plan(self, goal: str) -> list:
+    async def plan(self, goal: str) -> list[AgentTask]:
         """Use LLM to decompose a security goal into executable tasks."""
         messages = [
             SystemMessage(content=self.PLANNER_PROMPT),
@@ -116,19 +117,23 @@ Return only the JSON array, no markdown, no explanation.
         ]
         response = self.llm.invoke(messages)
         raw = response.content.strip()
+        # Strip markdown code fences if present
         if "```" in raw:
-            raw = raw.split("```")[1]
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
             if raw.startswith("json"):
                 raw = raw[4:]
         try:
             tasks_data = json.loads(raw.strip())
         except json.JSONDecodeError:
-            tasks_data = [{"id": "t1", "name": "Threat intel",
-                           "tool": "threat_intel", "params": {"query": goal}}]
+            # Fallback: single threat intel task
+            tasks_data = [
+                {"id": "t1", "name": "Threat intelligence", "tool": "threat_intel", "params": {"query": goal}}
+            ]
         return [
             AgentTask(
                 id=t.get("id", str(uuid.uuid4())),
-                name=t.get("name", "unnamed"),
+                name=t.get("name", "unnamed task"),
                 tool=t.get("tool", "threat_intel"),
                 params=t.get("params", {}),
             )
@@ -154,12 +159,12 @@ Return only the JSON array, no markdown, no explanation.
         return task
 
     async def run_goal(self, goal: str) -> dict:
-        """Plan and execute all tasks for a security goal."""
+        """Plan and execute all tasks for a security goal, return full report."""
         session = self.new_session(goal)
         tasks = await self.plan(goal)
         session.tasks = tasks
 
-        completed = []
+        completed: list[AgentTask] = []
         for task in tasks:
             result = await self.execute_task(task)
             completed.append(result)
@@ -174,8 +179,8 @@ Return only the JSON array, no markdown, no explanation.
 
     # ── Chat ──────────────────────────────────────────────────────
 
-    async def chat(self, message: str, session_id: Optional[str] = None) -> tuple:
-        """Interactive chat. Returns (response, session_id)."""
+    async def chat(self, message: str, session_id: Optional[str] = None) -> tuple[str, str]:
+        """Interactive chat with Ghost AI. Returns (response, session_id)."""
         if session_id and session_id in self.sessions:
             session = self.sessions[session_id]
         else:
@@ -198,8 +203,8 @@ Return only the JSON array, no markdown, no explanation.
 
     # ── Summarization ─────────────────────────────────────────────
 
-    async def _summarize(self, goal: str, tasks: list) -> str:
-        task_lines = []
+    async def _summarize(self, goal: str, tasks: list[AgentTask]) -> str:
+        lines = []
         for t in tasks:
             line = f"- [{t.tool}] {t.name}: {t.status.value}"
             if t.result:
@@ -208,16 +213,15 @@ Return only the JSON array, no markdown, no explanation.
                     line += f" ({count} findings)"
             if t.error:
                 line += f" ERROR: {t.error}"
-            task_lines.append(line)
+            lines.append(line)
 
         messages = [
             SystemMessage(content=self.SYSTEM_PROMPT),
             HumanMessage(
                 content=(
                     f"Security goal: {goal}\n\nTask results:\n"
-                    + "\n".join(task_lines)
-                    + "\n\nProvide a concise, structured security assessment "
-                    "with key findings and recommendations."
+                    + "\n".join(lines)
+                    + "\n\nProvide a concise, structured security assessment with key findings and actionable recommendations."
                 )
             ),
         ]
@@ -236,10 +240,8 @@ Return only the JSON array, no markdown, no explanation.
                 "count": 0,
             }
         proc = await asyncio.create_subprocess_exec(
-            "gitleaks", "detect",
-            "--source", path,
-            "--report-format", "json",
-            "--report-path", "/tmp/gitleaks_ghost.json",
+            "gitleaks", "detect", "--source", path,
+            "--report-format", "json", "--report-path", "/tmp/gitleaks_ghost.json",
             "--no-git",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -297,8 +299,7 @@ Return only the JSON array, no markdown, no explanation.
                 "message": "commix not installed — see github.com/commixproject/commix",
             }
         proc = await asyncio.create_subprocess_exec(
-            "commix", "--url", url, "--batch",
-            "--output-dir", "/tmp/commix_ghost",
+            "commix", "--url", url, "--batch", "--output-dir", "/tmp/commix_ghost",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -314,26 +315,12 @@ Return only the JSON array, no markdown, no explanation.
         url = params.get("url")
         if not url:
             return {"status": "error", "message": "url parameter required"}
-        profile = (
-            f"plugins\n"
-            f"use discovery web_spider\n"
-            f"use audit xss sqli csrf os_commanding\n"
-            f"use output console\n"
-            f"use output xml_file\n"
-            f"output config xml_file\n"
-            f"set output_file /tmp/ghost_w3af_results.xml\n"
-            f"back\n"
-            f"target\n"
-            f"set target {url}\n"
-            f"back\n"
-            f"start\n"
-        )
         return {
             "status": "queued",
             "tool": "w3af",
             "url": url,
-            "message": "Run: w3af_console -s /tmp/ghost_w3af.w3af",
-            "profile": profile,
+            "message": "w3af scan queued — run manually via w3af_console",
+            "profile": self._w3af_profile(url),
         }
 
     async def _run_threat_intel(self, params: dict) -> dict:
@@ -353,6 +340,22 @@ Return only the JSON array, no markdown, no explanation.
             }
         except ImportError:
             return {"status": "error", "message": "search module unavailable"}
+
+    # ── Helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _w3af_profile(url: str) -> str:
+        return (
+            "plugins\n"
+            "use discovery web_spider\n"
+            "use audit xss sqli csrf os_commanding\n"
+            "use output xml_file\n"
+            "output config xml_file\n"
+            f"set output_file /tmp/ghost_w3af_{url.split('/')[-1]}.xml\n"
+            "back\ntarget\n"
+            f"set target {url}\n"
+            "back\nstart\n"
+        )
 
     @staticmethod
     def _serialize_task(task: AgentTask) -> dict:
