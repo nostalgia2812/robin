@@ -328,8 +328,8 @@ Return ONLY the JSON array. No markdown. No explanation.
         if not query:
             return {"status": "error", "message": "query parameter required"}
         try:
-            from search import search_dark_web
-            results = search_dark_web(query)
+            from search import get_search_results
+            results = get_search_results(query)
             summary = generate_summary(self.llm, query, str(results[:5]))
             return {
                 "status": "complete",

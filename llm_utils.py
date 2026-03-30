@@ -74,6 +74,18 @@ _llm_config_map = {
         'class': ChatOpenAI,
         'constructor_params': {'model_name': 'gpt-5-nano'} 
     },
+    'claude-opus-4-6': {
+        'class': ChatAnthropic,
+        'constructor_params': {'model': 'claude-opus-4-6'}
+    },
+    'claude-sonnet-4-6': {
+        'class': ChatAnthropic,
+        'constructor_params': {'model': 'claude-sonnet-4-6'}
+    },
+    'claude-haiku-4-5': {
+        'class': ChatAnthropic,
+        'constructor_params': {'model': 'claude-haiku-4-5-20251001'}
+    },
     'claude-sonnet-4-5': {
         'class': ChatAnthropic,
         'constructor_params': {'model': 'claude-sonnet-4-5'}
